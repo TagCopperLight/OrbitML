@@ -155,6 +155,11 @@ wheels = [
 ]
 
 [[package]]
+name = "aurora-client"
+version = "0.1.0"
+source = { editable = "viz/Aurora/clients/python" }
+
+[[package]]
 name = "babel"
 version = "2.18.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1415,6 +1420,11 @@ dependencies = [
     { name = "torch", version = "2.15.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
 ]
 
+[package.dev-dependencies]
+viz = [
+    { name = "aurora-client" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "astropy", specifier = ">=8.0.2" },
@@ -1425,6 +1435,9 @@ requires-dist = [
     { name = "sgp4", specifier = ">=2.27" },
     { name = "torch", specifier = ">=2.15.0", index = "https://download.pytorch.org/whl/cpu" },
 ]
+
+[package.metadata.requires-dev]
+viz = [{ name = "aurora-client", editable = "viz/Aurora/clients/python" }]
 
 [[package]]
 name = "packaging"

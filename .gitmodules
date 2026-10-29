@@ -1,0 +1,3 @@
+[submodule "viz/Aurora"]
+	path = viz/Aurora
+	url = https://github.com/TagCopperLight/Aurora

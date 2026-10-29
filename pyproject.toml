@@ -19,3 +19,9 @@ explicit = true
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
+aurora-client = { path = "viz/Aurora/clients/python", editable = true }
+
+[dependency-groups]
+viz = [
+    "aurora-client",
+]
