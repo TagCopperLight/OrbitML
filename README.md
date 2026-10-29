@@ -51,9 +51,10 @@ viz/run.fish 8
 
 The scenes are `1` (the orbit and its ground track), `3` (the R, S, W frame), `8`
 (the error of every test TLE), `9` (the position at each TLE date), `13` (the orbit
-plane and the Sun), `14` (the error by place) and `fin` (step 8 with the
-correction). Space pauses, up and down change the speed, R restarts, N and P move
-to the next or previous TLE. `--at DAYS` starts a scene later, `--tle N` picks a TLE.
+plane and the Sun), `14` (the error by place), `fin` (step 8 with the
+correction) and `replay` (the truth played back with a fading ground track). Space
+pauses, right steps, up and down change the speed, R restarts, N and P move to the
+next or previous TLE. `--at DAYS` starts a scene later, `--tle N` picks a TLE.
 
 ## References
 

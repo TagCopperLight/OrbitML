@@ -3,6 +3,7 @@
 #include "aurora_ui/components/aurora_circle.hpp"
 #include "aurora_ui/components/aurora_panel.hpp"
 #include "aurora_ui/components/aurora_segment.hpp"
+#include "aurora_ui/components/aurora_trail.hpp"
 #include "aurora_ui/utils/aurora_theme_settings.hpp"
 #include "aurora_debug/aurora_debug_json.hpp"
 #include "aurora_debug/aurora_debug_server.hpp"
@@ -32,10 +33,12 @@
 //   {"id": "<name>", "dots": [x, y, z, ...], "color": "<name>", "size": pixels}    points in space, km
 //   {"id": "<name>", "track": [latitude, longitude, ...], "color": "<name>", "size": pixels}    map polyline
 //   {"id": "<name>", "spots": [latitude, longitude, ...], "colors": [r, g, b, ...], "size": pixels}
+//   {"id": "<name>", "trail": [latitude, longitude], "color": "<name>", "size": pixels, "length": points}
+//        adds a point to a map trail that fades with age, cut at the antimeridian
 //   {"remove": "<id>"}
 // Sending an id again replaces the object. Watch (1) messages fill the panel.
 // Key presses are sent back as Command (4) messages, {"command": "<name>"}:
-//   SPACE -> pause, UP -> faster, DOWN -> slower, R -> restart, N -> next, P -> previous
+//   SPACE -> pause, RIGHT -> step, UP -> faster, DOWN -> slower, R -> restart, N -> next, P -> previous
 
 class OrbitViewer : public aurora::AuroraUI {
     public:
@@ -93,6 +96,7 @@ class OrbitViewer : public aurora::AuroraUI {
         void onKey(int key, int /*mods*/) override {
             switch (key) {
                 case GLFW_KEY_SPACE: sendCommand("pause"); break;
+                case GLFW_KEY_RIGHT: sendCommand("step"); break;
                 case GLFW_KEY_UP: sendCommand("faster"); break;
                 case GLFW_KEY_DOWN: sendCommand("slower"); break;
                 case GLFW_KEY_R: sendCommand("restart"); break;
@@ -115,6 +119,8 @@ class OrbitViewer : public aurora::AuroraUI {
         static constexpr float EARTH_TINT = 0.12f;
         static constexpr float EARTH_RADIUS = 6378.137f;  // km
         static constexpr float JUMP = 180.f;  // degrees of longitude: a longer step on the map crosses the antimeridian
+        static constexpr float TRAIL_STEP = 0.4f;  // degrees between trail points, so a trail covers the same ground at any speed
+        static constexpr float TRAIL_JUMP = 20.f;  // degrees: a longer move is a restart or a loop, it is not joined
 
         // Drawn back to front. What is behind the Earth goes under it, the opaque disk hides it
         static constexpr int BACKGROUND_LAYER = 0;
@@ -142,7 +148,7 @@ class OrbitViewer : public aurora::AuroraUI {
             std::vector<std::shared_ptr<aurora::AuroraSegment>> segments;  // on the map
         };
 
-        enum class Kind { Line, Point, Dots, Track, Spots };
+        enum class Kind { Line, Point, Dots, Track, Spots, Trail };
 
         struct Object {
             Kind kind;
@@ -154,6 +160,8 @@ class OrbitViewer : public aurora::AuroraUI {
             std::vector<std::shared_ptr<aurora::AuroraSegment>> segments;
             std::vector<std::shared_ptr<aurora::AuroraCircle>> circles;
             std::shared_ptr<aurora::AuroraText> text;
+            std::shared_ptr<aurora::AuroraTrail> trail;
+            glm::vec2 last{0.f, 0.f};  // trail only, the latest (longitude, latitude)
         };
 
         static glm::vec3 unitVector(float latitude, float longitude) {
@@ -283,6 +291,9 @@ class OrbitViewer : public aurora::AuroraUI {
             } else if (values = getNumberArray(payload, "track"); !values.empty()) {
                 object.kind = Kind::Track;
                 object.points = pairs(values);
+            } else if (values = getNumberArray(payload, "trail"); values.size() == 2) {
+                object.kind = Kind::Trail;
+                object.points = pairs(values);
             } else if (values = getNumberArray(payload, "spots"); !values.empty()) {
                 object.kind = Kind::Spots;
                 object.points = pairs(values);
@@ -293,6 +304,10 @@ class OrbitViewer : public aurora::AuroraUI {
 
             // Same shape and look: only the points move, the components are kept
             auto found = objects.find(id);
+            if (found != objects.end() && found->second.kind == Kind::Trail && object.kind == Kind::Trail) {
+                pushTrail(found->second, object.points[0]);
+                return;
+            }
             if (found != objects.end()) {
                 Object& old = found->second;
                 if (old.kind == object.kind && old.points.size() == object.points.size() && old.color == object.color
@@ -322,6 +337,13 @@ class OrbitViewer : public aurora::AuroraUI {
                         object.circles.back()->setLayer(POINT_LAYER);
                     }
                     break;
+                case Kind::Trail:
+                    object.trail = create<aurora::AuroraTrail>(static_cast<size_t>(getNumber(payload, "length", 900.0)), object.size, color);
+                    object.trail->setLayer(OBJECT_LAYER);
+                    object.trail->setMinStep(TRAIL_STEP);
+                    object.trail->push(object.points[0], false);
+                    object.last = object.points[0];
+                    break;
                 case Kind::Spots:
                     for (size_t i = 0; i < object.points.size(); ++i) {
                         glm::vec4 spot = 3 * i + 2 < object.colors.size()
@@ -344,6 +366,22 @@ class OrbitViewer : public aurora::AuroraUI {
             for (const auto& segment : object.segments) destroy(segment);
             for (const auto& circle : object.circles) destroy(circle);
             if (object.text) destroy(object.text);
+            if (object.trail) destroy(object.trail);
+        }
+
+        // Ends the trail on one edge of the map and starts it again on the other at the crossing latitude
+        void pushTrail(Object& object, glm::vec2 point) {
+            glm::vec2 delta = point - object.last;
+            float wrap = 360.f * std::round(delta.x / 360.f);  // nonzero when crossing the antimeridian
+            delta.x -= wrap;
+            if (glm::length(delta) < TRAIL_JUMP && wrap != 0.f) {
+                float edge = -wrap / 2.f;
+                float latitude = object.last.y + delta.y * (edge - object.last.x) / delta.x;
+                object.trail->push({edge, latitude});
+                object.trail->push({-edge, latitude}, false);
+            }
+            object.trail->push(point, glm::length(delta) < TRAIL_JUMP);
+            object.last = point;
         }
 
         void clear() {
@@ -541,6 +579,12 @@ class OrbitViewer : public aurora::AuroraUI {
                         object.circles[i]->setPosition(mapPoint(object.points[i]));
                     }
                     break;
+                case Kind::Trail: {
+                    glm::vec2 origin = mapPoint({0.f, 0.f});
+                    object.trail->setHidden(!map_view.shown);
+                    object.trail->setMapping(origin, mapPoint({1.f, 1.f}) - origin);
+                    break;
+                }
             }
             if (object.text) {
                 object.text->setHidden(object.kind == Kind::Track ? !map_view.shown : !space_view.shown);

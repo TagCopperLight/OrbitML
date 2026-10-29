@@ -11,7 +11,8 @@ Usage: scenes.py <scene> [--tle N] [--at DAYS]
   13   the plane of the orbit over 60 days, seen with the Sun kept to the right
   14   the error left after step 13 in R, averaged by place: it depends on the longitude
   fin  like 8, with the corrected positions
-Keys: SPACE pause, UP/DOWN speed, R restart, N/P next/previous TLE (or week, for 9)
+  replay  the first viewer of OrbitML: the truth played back, with a fading ground track
+Keys: SPACE pause, RIGHT step, UP/DOWN speed, R restart, N/P next/previous TLE (or week, for 9)
 """
 
 import argparse
@@ -133,6 +134,9 @@ class Scene:
         match name:
             case "pause":
                 self.paused = not self.paused
+            case "step":
+                self.paused = True
+                self.t = (self.t + self.speeds[self.speed] / FPS / DAY) % self.duration
             case "faster":
                 self.speed = min(self.speed + 1, len(self.speeds) - 1)
             case "slower":
@@ -464,7 +468,73 @@ def julian_iso(jd: float) -> str:
     return str(np.datetime64(int(round(seconds)), "s")).replace("T", " ")
 
 
-SCENES = {"1": Truth, "3": Frame, "8": Drift, "9": Node, "13": Sun, "14": Ground, "fin": Corrected}
+class Replay(Scene):
+    """The first viewer of OrbitML: the truth played back on the globe and the ground track, with a fading trail."""
+
+    speeds = [1, 10, 60, 300, 1200, 2400]
+    speed = 3
+    ORBIT_POINTS = 180  # points of the revolution drawn on the globe
+
+    def setup(self) -> None:
+        d = self.data
+        self.seconds = (d.truth_jd - d.truth_jd[0]) * DAY
+        self.duration = self.seconds[-1] / DAY
+        self.r = d.truth_r
+        self.v = np.gradient(self.r, self.seconds, axis=0)  # km/s
+        self.speed_norm = np.linalg.norm(self.v, axis=1)
+
+        # Revolution of each state, incremented at each ascending node (z going from south to north)
+        z = self.r[:, 2]
+        self.orbit = np.concatenate([[0], np.cumsum((z[:-1] < 0) & (z[1:] >= 0))])
+        semi_major_axis = 1 / (2 / np.linalg.norm(self.r, axis=1) - self.speed_norm**2 / 398600.4418)  # vis-viva
+        self.period = float(np.mean(2 * np.pi * np.sqrt(semi_major_axis**3 / 398600.4418)))  # s
+        self.sent_orbit = None
+
+        self.send(layout="both")
+        self.send(titles=1, space="GLOBE (TEME)", map="TRACE AU SOL")
+        self.send(camera=camera_facing(np.cross(self.r[0], self.v[0]), -45), center=[0, 0, 0], extent=7600)
+        self.watches({"MISSION": "SENTINEL-6A", "DU": julian_iso(d.truth_jd[0]), "AU": julian_iso(d.truth_jd[-1])}, "SOURCE")
+
+    def at(self, values: np.ndarray, seconds: np.ndarray | float) -> np.ndarray:
+        values = np.stack([smooth(self.seconds, column, np.atleast_1d(seconds)) for column in np.atleast_2d(values.T)], axis=-1)
+        return values
+
+    def frame(self) -> None:
+        d = self.data
+        seconds = self.t * DAY
+        jd = d.truth_jd[0] + self.t
+        index = np.searchsorted(self.seconds, seconds, side="right") - 1
+        orbit = int(self.orbit[index])
+        if orbit != self.sent_orbit:
+            # One revolution from the first state of this one, kept inside the data
+            start = self.seconds[np.argmax(self.orbit == orbit)]
+            start = max(0.0, min(start, self.seconds[-1] - self.period))
+            ring = self.at(self.r, start + np.linspace(0.0, self.period, self.ORBIT_POINTS + 1))
+            self.send(id="orbit", line=rounded(ring), color="blue", size=2)
+            self.sent_orbit = orbit
+
+        r = self.at(self.r, seconds)[0]
+        latitude, longitude = latitude_longitude(r[None], np.array([jd]))[0]
+        self.send(earth=earth_rotation(jd), surface=1)
+        self.send(id="satellite", point=rounded(r), color="blue", size=5)
+        self.send(id="track", trail=[round(float(latitude), 2), round(float(longitude), 2)], color="blue", size=2, length=900)
+        self.send(id="track satellite", spots=[round(float(latitude), 2), round(float(longitude), 2)], colors=[0.45, 0.75, 0.98], size=5)
+        self.watches({
+            "UTC": julian_iso(jd),
+            "REVOLUTION": orbit,
+            "ALTITUDE": f"{np.linalg.norm(r) - EARTH_RADIUS:.1f} km",
+            "LATITUDE": f"{latitude:+.2f} deg",
+            "LONGITUDE": f"{longitude:+.2f} deg",
+            "VITESSE": f"{np.interp(seconds, self.seconds, self.speed_norm):.3f} km/s",
+        }, "SATELLITE")
+
+    def command(self, name: str) -> None:
+        if name == "restart":
+            self.sent_orbit = None
+        super().command(name)
+
+
+SCENES = {"1": Truth, "3": Frame, "8": Drift, "9": Node, "13": Sun, "14": Ground, "fin": Corrected, "replay": Replay}
 
 
 def main() -> None:
