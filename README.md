@@ -1,9 +1,9 @@
 # OrbitML
 
-Correcting the SGP4 orbit prediction error of a satellite with machine learning,
-after Peng & Bai. A TLE propagated with SGP4 places Sentinel-6A within a few
-kilometers, but the error has a structure: a neural network trained on precise
-orbits removes most of it over 14 days of prediction.
+Correcting satellite orbit predictions with a neural network, after Peng & Bai.
+Two weeks out, SGP4, the standard model, places Sentinel-6A about 2 km from its true
+position. A small network trained on precise orbits brings that down to 750 m.
+[The project page](https://bourdet.be/projects/orbitml/) tells how it got there.
 
 ![Error by place](viz/screenshots/longitude.png)
 
@@ -25,7 +25,7 @@ training, the share of the 14-day error left in each direction is:
 | network with the inputs of the article | 36 % | 83 % | 36 % |
 | final network | 13 % | 39 % | 18 % |
 
-R is radial, S along the track and W perpendicular to the orbit plane. The data is
+R is radial, S along-track and W perpendicular to the orbit plane. The data is
 in `data/`: the 2024 Sentinel-6A precise orbits from DORIS (SP3) and its TLEs. Run it
 with [uv](https://docs.astral.sh/uv/) and Python 3.14:
 
@@ -48,13 +48,6 @@ git submodule update --init
 uv run jupyter execute orbitml.ipynb  # its last cell exports viz/data/orbitml.npz
 viz/run.fish 8
 ```
-
-The scenes are `1` (the orbit and its ground track), `3` (the R, S, W frame), `8`
-(the error of every test TLE), `9` (the position at each TLE date), `13` (the orbit
-plane and the Sun), `14` (the error by place), `fin` (step 8 with the
-correction) and `replay` (the truth played back with a fading ground track). Space
-pauses, right steps, up and down change the speed, R restarts, N and P move to the
-next or previous TLE. `--at DAYS` starts a scene later, `--tle N` picks a TLE.
 
 ## References
 
