@@ -1,7 +1,7 @@
 # OrbitML
 
 Correcting satellite orbit predictions with a neural network, after Peng & Bai.
-Two weeks out, SGP4, the standard model, places Sentinel-6A about 2 km from its true
+Two weeks out, SGP4, the standard model, places Sentinel-6A 1.9 km from its true
 position. A small network trained on precise orbits brings that down to 750 m.
 [The project page](https://bourdet.be/projects/orbitml/) tells how it got there.
 
